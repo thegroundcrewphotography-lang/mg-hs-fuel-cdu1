@@ -1,0 +1,7 @@
+<!doctype html><meta name=viewport content="width=device-width"><title>Fuel CDU Host Test</title>
+<style>body{font:16px system-ui;background:#101316;color:#eee;padding:20px}.ok{color:#7f8}.bad{color:#f77}</style>
+<h1>Fuel CDU Host Test</h1><div id=o></div><button onclick="navigator.geolocation.getCurrentPosition(p=>o.innerHTML+='<p class=ok>GPS OK ±'+Math.round(p.coords.accuracy)+'m</p>',e=>o.innerHTML+='<p class=bad>GPS: '+e.message+'</p>',{enableHighAccuracy:true})">Test GPS</button>
+<script>
+const good=location.protocol==='https:'||(location.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(location.hostname));
+o.innerHTML='<p>URL: '+location.href+'</p><p class='+(good?'ok':'bad')+'>Live-host mode: '+(good?'YES':'NO')+'</p>';
+</script>

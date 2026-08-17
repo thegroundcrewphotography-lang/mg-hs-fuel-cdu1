@@ -1,0 +1,25 @@
+{
+  "name": "TheGroundCrew MG HS Fuel CDU v6",
+  "short_name": "Fuel CDU",
+  "description": "Live HTTPS/PWA GPS-assisted P98 fuel management computer for the MG HS PHEV.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1012",
+  "theme_color": "#101316",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
