@@ -12,7 +12,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>TheGroundCrew Fuel CDU v6 — MG HS PHEV</title>
+<title>TheGroundCrew Fuel CDU v7 — MG HS PHEV</title>
 <style>
 :root{
   --body:#171a1d; --bezel:#292e33; --bezel2:#202428; --screen:#070b0a; --line:#3b4349;
@@ -114,7 +114,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </div>
 
   <div class="cdu">
-    <div class="unitLabel">MG HS PHEV • FUEL CDU v6</div>
+    <div class="unitLabel">MG HS PHEV • FUEL CDU v7</div>
 
     <div class="displayrow">
       <div class="lsks">
@@ -337,24 +337,28 @@ function refuelWindow(){
  const prefL=TANK_CAP*f.preferred/100;
 
  if(!Number.isFinite(f.worst) || f.worst<=0){
-   return {prefKm:f.now,latestKm:f.now,startKm:f.now,distPref:0,distLatest:0,overdue:true};
+   return {prefKm:f.now,latestKm:f.now,rawPrefKm:f.now,rawLatestKm:f.now,startKm:f.now,distPref:0,distLatest:0,overdue:true,reserveL:resL,preferredL:prefL,homeWorst:0,noRefuelRequired:false,prefBeyondDest:false,latestBeyondDest:false};
  }
 
  const distPref=Math.max(0,(f.worstL-prefL)/f.worst*100);
  const distLatest=Math.max(0,(f.worstL-resL)/f.worst*100);
- const prefKm=clamp(f.now+distPref,f.now,ROUTE_TOTAL);
- const latestKm=clamp(f.now+distLatest,f.now,ROUTE_TOTAL);
+ const rawPrefKm=f.now+distPref;
+ const rawLatestKm=f.now+distLatest;
+ const homeWorst=f.worstL-f.home*f.worst/100;
+ const noRefuelRequired=homeWorst>=resL;
 
  return {
-   prefKm,
-   startKm:prefKm,
-   latestKm,
-   distPref:Math.max(0,prefKm-f.now),
-   distLatest:Math.max(0,latestKm-f.now),
+   prefKm:Math.min(rawPrefKm,ROUTE_TOTAL),
+   startKm:Math.min(rawPrefKm,ROUTE_TOTAL),
+   latestKm:Math.min(rawLatestKm,ROUTE_TOTAL),
+   rawPrefKm,rawLatestKm,distPref,distLatest,
    overdue:f.worstL<resL,
-   active:f.now>=prefKm && f.now<=latestKm,
-   reserveL:resL,
-   preferredL:prefL
+   active:!noRefuelRequired && f.now>=rawPrefKm && f.now<=rawLatestKm,
+   reserveL:resL,preferredL:prefL,homeWorst,noRefuelRequired,
+   prefBeyondDest:rawPrefKm>=ROUTE_TOTAL,
+   latestBeyondDest:rawLatestKm>=ROUTE_TOTAL,
+   prefBeyondBy:Math.max(0,rawPrefKm-ROUTE_TOTAL),
+   latestBeyondBy:Math.max(0,rawLatestKm-ROUTE_TOTAL)
  };
 }
 
@@ -367,7 +371,12 @@ function allStations(){
  return a;
 }
 function calc(st){
- const f=fuel(),ahead=st.km-f.now+safeNum(st.detour,0),resL=TANK_CAP*f.reserve/100,prefL=TANK_CAP*f.preferred/100;
+ const f=fuel(),resL=TANK_CAP*f.reserve/100,prefL=TANK_CAP*f.preferred/100;
+ if(st?.noRefuel){
+   const homeArr=f.worstL-f.home*f.worst/100;
+   return {...st,ahead:f.home,arr:homeArr,homeArr,state:homeArr>=resL?"SAFE":"RISK",label:homeArr>=resL?"NO REFUEL REQD":"RESERVE FAIL",score:-9999,fillL:0,cost:0};
+ }
+ const ahead=st.km-f.now+safeNum(st.detour,0);
  const arr=f.worstL-ahead*f.worst/100;
  const homeLeg=Math.max(0,ROUTE_TOTAL-st.km)+safeNum(st.detour,0);
  const homeArr=TANK_CAP-homeLeg*f.worst/100;
@@ -390,34 +399,23 @@ function candidates(){
 function choose(){
  const c=cfg(),win=refuelWindow();
  const resL=TANK_CAP*c.reserve/100;
+ if(win.noRefuelRequired){
+   const dest={name:"NO REFUEL REQUIRED",km:ROUTE_TOTAL,price:0,detour:0,src:"FMC",noRefuel:true};
+   const alts=candidates().filter(x=>x.arr>=resL).sort((a,b)=>a.score-b.score).slice(0,3);
+   return {primary:dest,alts,window:win,noRefuelRequired:true};
+ }
  const reachable=candidates().filter(x=>x.arr>=resL);
-
- if(!reachable.length)return {primary:null,alts:[],window:win};
-
- /* FMC logic:
-    1. Prefer a real station inside the calculated refuel window.
-    2. If none exists, choose the safe station closest to the preferred refuel point.
-    3. Reaching home on that tank is desirable, but NOT mandatory: the CDU can plan another stop.
- */
- const inWindow=reachable.filter(x=>x.km>=win.startKm-2 && x.km<=win.latestKm+2);
+ if(!reachable.length)return {primary:null,alts:[],window:win,noRefuelRequired:false};
+ const inWindow=reachable.filter(x=>x.km>=win.rawPrefKm-2 && x.km<=win.rawLatestKm+2);
  const pool=(inWindow.length?inWindow:reachable).slice().sort((a,b)=>{
-   const aWindow=Math.abs(a.km-win.prefKm);
-   const bWindow=Math.abs(b.km-win.prefKm);
-   const aOneStop=a.homeArr>=resL?0:18;
-   const bOneStop=b.homeArr>=resL?0:18;
-   const aPrice=a.price>0?a.price:260;
-   const bPrice=b.price>0?b.price:260;
-   const aRank=aWindow*0.75+aOneStop+aPrice*0.08+safeNum(a.detour,0)*2;
-   const bRank=bWindow*0.75+bOneStop+bPrice*0.08+safeNum(b.detour,0)*2;
-   return aRank-bRank;
+   const aWindow=Math.abs(a.km-win.rawPrefKm),bWindow=Math.abs(b.km-win.rawPrefKm);
+   const aOneStop=a.homeArr>=resL?0:18,bOneStop=b.homeArr>=resL?0:18;
+   const aPrice=a.price>0?a.price:260,bPrice=b.price>0?b.price:260;
+   return (aWindow*0.75+aOneStop+aPrice*0.08+safeNum(a.detour,0)*2)-(bWindow*0.75+bOneStop+bPrice*0.08+safeNum(b.detour,0)*2);
  });
-
  const primary=pool[0]||null;
- const alts=reachable.filter(x=>!primary || planIdentity(x)!==planIdentity(primary))
-   .sort((a,b)=>Math.abs(a.km-win.prefKm)-Math.abs(b.km-win.prefKm) || a.score-b.score)
-   .slice(0,3);
-
- return {primary,alts,window:win};
+ const alts=reachable.filter(x=>!primary || planIdentity(x)!==planIdentity(primary)).sort((a,b)=>Math.abs(a.km-win.rawPrefKm)-Math.abs(b.km-win.rawPrefKm) || a.score-b.score).slice(0,3);
+ return {primary,alts,window:win,noRefuelRequired:false};
 }
 function planIdentity(p){return p?`${p.name}|${p.km.toFixed(0)}|${safeNum(p.price,0).toFixed(1)}`:"NONE"}
 function evaluatePlanChange(){
@@ -425,7 +423,8 @@ function evaluatePlanChange(){
  if(!activePlan){activePlan=next;modifiedPlan=null;execPending=false;return}
  if(planIdentity(next)!==planIdentity(activePlan)){
    modifiedPlan=next;execPending=true;
-   addMessage(next?`MOD PLAN ${next.name}`:"NO SAFE PRIMARY",next?"AMBER":"RED");
+   if(next?.noRefuel) addMessage("MOD — NO REFUEL REQUIRED","GREEN");
+   else addMessage(next?`MOD PLAN ${next.name}`:"NO SAFE PRIMARY",next?"AMBER":"RED");
  }
 }
 function addMessage(txt,level="AMBER"){
@@ -491,21 +490,38 @@ function render(){
    out+=L("EST FOB",litres(f.planL),"g","CONT FOB",litres(f.worstL),f.worstL>=TANK_CAP*f.reserve/100?"g":"r");
    out+=L("TANK EST",pct(f.planL/TANK_CAP*100),"w","BATTERY",`${f.battery.toFixed(0)}%`,"c");
    out+=L("CONT RANGE",`${worstRange.toFixed(0)}KM`,"a","OP RANGE",`${opRange.toFixed(0)}KM`,"g");
-   out+=L("PREF REFUEL POS",`${win.prefKm.toFixed(0)}KM`,"c","DIST TO PREF",`${win.distPref.toFixed(0)}KM`,"c");
-   out+=L("REFUEL WINDOW",`${win.startKm.toFixed(0)}-${win.latestKm.toFixed(0)}KM`,win.active?"g":"a","LATEST SAFE",`${win.latestKm.toFixed(0)}KM`,win.overdue?"r":"a");
-   out+=L("PRIMARY",displayPrimary?displayPrimary.name.slice(0,18):"NONE",displayPrimary?"g":"r","EFOB @STOP",displayPrimary?litres(displayPrimary.arr):"---",displayPrimary?"g":"r");
-   out+=L("EFOB HOME",displayPrimary?litres(displayPrimary.homeArr):"---",displayPrimary&&displayPrimary.homeArr>=TANK_CAP*f.reserve/100?"g":"a","2ND STOP",displayPrimary&&displayPrimary.homeArr<TANK_CAP*f.reserve/100?"REQUIRED":"NOT REQD",displayPrimary&&displayPrimary.homeArr<TANK_CAP*f.reserve/100?"a":"g");
+   if(win.noRefuelRequired){
+     out+=L("PREF REFUEL POS","AFTER DEST","g","DIST HOME",`${f.home.toFixed(0)}KM`,"g");
+     out+=L("REFUEL WINDOW","NOT REQUIRED","g","LATEST SAFE",win.latestBeyondDest?`DEST +${win.latestBeyondBy.toFixed(0)}`:"DEST SAFE","g");
+     out+=L("ARRIVE METFORD",litres(win.homeWorst),"g","TANK",pct(win.homeWorst/TANK_CAP*100),"g");
+     out+=L("REQ RESERVE",litres(win.reserveL),"w","RES MARGIN",litres(win.homeWorst-win.reserveL),"g");
+   }else{
+     out+=L("PREF REFUEL POS",`${win.rawPrefKm.toFixed(0)}KM`,"c","DIST TO PREF",`${win.distPref.toFixed(0)}KM`,"c");
+     out+=L("REFUEL WINDOW",`${win.rawPrefKm.toFixed(0)}-${win.rawLatestKm.toFixed(0)}KM`,win.active?"g":"a","LATEST SAFE",`${win.rawLatestKm.toFixed(0)}KM`,win.overdue?"r":"a");
+     out+=L("PRIMARY",displayPrimary?displayPrimary.name.slice(0,18):"NONE",displayPrimary?"g":"r","EFOB @STOP",displayPrimary?litres(displayPrimary.arr):"---",displayPrimary?"g":"r");
+     out+=L("EFOB HOME",displayPrimary?litres(displayPrimary.homeArr):"---",displayPrimary&&displayPrimary.homeArr>=TANK_CAP*f.reserve/100?"g":"a","2ND STOP",displayPrimary&&displayPrimary.homeArr<TANK_CAP*f.reserve/100?"REQUIRED":"NOT REQD",displayPrimary&&displayPrimary.homeArr<TANK_CAP*f.reserve/100?"a":"g");
+   }
  }
  else if(page==="PROG"){
    setHead("PROGRESS","ACT", "1/1");
    const p=displayPrimary,win=refuelWindow();
-   const pInWindow=p && p.km>=win.startKm-2 && p.km<=win.latestKm+2;
+   const pInWindow=p && !p.noRefuel && p.km>=win.rawPrefKm-2 && p.km<=win.rawLatestKm+2;
+   const prefText=win.noRefuelRequired?"AFTER DEST":`${win.rawPrefKm.toFixed(0)}KM`;
+   const prefDist=win.noRefuelRequired?`+${win.prefBeyondBy.toFixed(0)}KM`:`${win.distPref.toFixed(0)}KM`;
+   const windowText=win.noRefuelRequired?"NOT REQUIRED":`${win.rawPrefKm.toFixed(0)}-${win.rawLatestKm.toFixed(0)}KM`;
+   const latestText=win.noRefuelRequired?(win.latestBeyondDest?`DEST +${win.latestBeyondBy.toFixed(0)}`:"DEST SAFE"):`${win.rawLatestKm.toFixed(0)}KM`;
    out+=L("PRESENT POS",`${f.now.toFixed(0)}KM`,"c","DIST HOME",`${f.home.toFixed(0)}KM`,"c");
-   out+=L("PREF REFUEL POS",`${win.prefKm.toFixed(0)}KM`,"c","DIST TO PREF",`${win.distPref.toFixed(0)}KM`,win.active?"g":"c");
-   out+=L("REFUEL WINDOW",`${win.startKm.toFixed(0)}-${win.latestKm.toFixed(0)}KM`,win.active?"g":"a","LATEST SAFE",`${win.latestKm.toFixed(0)}KM`,win.overdue?"r":win.distLatest<=15?"a":"w");
-   out+=L("PRIMARY",p?p.name.slice(0,20):"NO SAFE STOP",p?(pInWindow?"g":"a"):"r","DIST",p?`${Math.max(0,p.ahead).toFixed(0)}KM`:"---",p?"w":"r");
-   out+=L("P98",p&&p.price>0?`${p.price.toFixed(1)}C/L`:"VERIFY",p&&p.price>0?"g":"a","EFOB STOP",p?litres(p.arr):"---",p?"g":"r");
-   out+=L("AFTER REFUEL",p&&p.homeArr>=TANK_CAP*f.reserve/100?"METFORD":"NEXT STOP REQD",p&&p.homeArr>=TANK_CAP*f.reserve/100?"w":"a","EFOB HOME",p?litres(p.homeArr):"---",p&&p.homeArr>=TANK_CAP*f.reserve/100?"g":"a");
+   out+=L("PREF REFUEL POS",prefText,win.noRefuelRequired?"g":"c","MARGIN",prefDist,win.noRefuelRequired?"g":"c");
+   out+=L("REFUEL WINDOW",windowText,win.noRefuelRequired?"g":win.active?"g":"a","LATEST SAFE",latestText,win.noRefuelRequired?"g":win.overdue?"r":win.distLatest<=15?"a":"w");
+   if(p?.noRefuel){
+     out+=L("PRIMARY","NO REFUEL REQUIRED","g","DIST HOME",`${f.home.toFixed(0)}KM`,"g");
+     out+=L("ARRIVE METFORD",litres(p.arr),"g","TANK",pct(p.arr/TANK_CAP*100),"g");
+     out+=L("REQ RESERVE",litres(TANK_CAP*f.reserve/100),"w","MARGIN",litres(p.arr-TANK_CAP*f.reserve/100),"g");
+   }else{
+     out+=L("PRIMARY",p?p.name.slice(0,20):"NO SAFE STOP",p?(pInWindow?"g":"a"):"r","DIST",p?`${Math.max(0,p.ahead).toFixed(0)}KM`:"---",p?"w":"r");
+     out+=L("P98",p&&p.price>0?`${p.price.toFixed(1)}C/L`:"VERIFY",p&&p.price>0?"g":"a","EFOB STOP",p?litres(p.arr):"---",p?"g":"r");
+     out+=L("AFTER REFUEL",p&&p.homeArr>=TANK_CAP*f.reserve/100?"METFORD":"NEXT STOP REQD",p&&p.homeArr>=TANK_CAP*f.reserve/100?"w":"a","EFOB HOME",p?litres(p.homeArr):"---",p&&p.homeArr>=TANK_CAP*f.reserve/100?"g":"a");
+   }
    const stale=ageMin(lastDataAt);
    out+=L("DATA AGE",lastDataAt?`${stale.toFixed(0)} MIN`:"NO LIVE DATA",lastDataAt&&stale<=15?"g":lastDataAt?"a":"r","AUTO UPDATE",autoData?"ON":"OFF",autoData?"g":"a");
    out+=L("PLAN STATUS",execPending?"MOD — EXEC REQD":"ACTIVE",execPending?"a":"g","GPS",gps?"TRACK":"MANUAL",gps?"g":"a");
@@ -562,8 +578,9 @@ function statusMessage(){
  if(ORIGIN.isContent)return "CONTENT:// MODE — OPEN HOSTED HTTPS VERSION FOR LIVE GPS";
  if(ORIGIN.isFile)return "FILE:// MODE — OPEN HOSTED HTTPS OR LOCALHOST VERSION";
  if(!ORIGIN.webTrusted)return "UNTRUSTED WEB ORIGIN — GPS/PWA DISABLED";
- if(execPending)return "ROUTE/FUEL PLAN MODIFIED — PRESS EXEC TO ACCEPT";
- if(win.overdue || f.now>win.latestKm+.5)return "REFUEL LIMIT EXCEEDED — TAKE NEXT SAFE FUEL";
+ if(execPending)return modifiedPlan?.noRefuel?"MOD — NO REFUEL REQUIRED; PRESS EXEC":"ROUTE/FUEL PLAN MODIFIED — PRESS EXEC TO ACCEPT";
+ if(win.noRefuelRequired)return "DESTINATION REACHABLE WITH CONTINGENCY RESERVE";
+ if(win.overdue || f.now>win.rawLatestKm+.5)return "REFUEL LIMIT EXCEEDED — TAKE NEXT SAFE FUEL";
  if(win.active)return "REFUEL WINDOW ACTIVE — USE PRIMARY WHEN PRACTICAL";
  if(win.distLatest<=15)return "LATEST SAFE REFUEL APPROACHING";
  if(win.distPref<=15)return "PREFERRED REFUEL POSITION APPROACHING";
@@ -910,11 +927,11 @@ function save(){
  const ids=["apiMode","refreshMin","refreshMoveKm","apiKey","proxyUrl","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc"];
  const values={};for(const id of ids)values[id]=$(id).value;
  /* Intentionally do not persist API secret. */
- localStorage.setItem("fuelCduV5",JSON.stringify({values,liveStations,activePlan,autoData,lastDataAt,lastDataStatus,lastRefreshRouteKm}));
+ localStorage.setItem("fuelCduV7",JSON.stringify({values,liveStations,activePlan,autoData,lastDataAt,lastDataStatus,lastRefreshRouteKm}));
 }
 function load(){
  try{
-   const x=JSON.parse(localStorage.getItem("fuelCduV5")||localStorage.getItem("fuelCduV3")||"null");if(!x)return;
+   const x=JSON.parse(localStorage.getItem("fuelCduV7")||localStorage.getItem("fuelCduV5")||localStorage.getItem("fuelCduV3")||"null");if(!x)return;
    Object.entries(x.values||{}).forEach(([k,v])=>{if($(k))$(k).value=v});
    if(Array.isArray(x.liveStations))liveStations=x.liveStations;
    if(x.activePlan)activePlan=x.activePlan;
@@ -924,7 +941,7 @@ function load(){
 }
 $("saveCfg").onclick=()=>{save();addMessage("STATE SAVED","GREEN");render()};
 $("clearLive").onclick=()=>{liveStations=[];lastDataAt=0;lastDataStatus="CLEARED";accessToken=null;evaluatePlanChange();save();render()};
-$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU trip data?")){localStorage.removeItem("fuelCduV5");localStorage.removeItem("fuelCduV3");location.reload()}};
+$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU trip data?")){localStorage.removeItem("fuelCduV7");localStorage.removeItem("fuelCduV5");localStorage.removeItem("fuelCduV3");location.reload()}};
 ["apiMode","refreshMin","refreshMoveKm","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc","proxyUrl","apiKey"]
  .forEach(id=>$(id).addEventListener("input",()=>{evaluatePlanChange();save();setAuto();render()}));
 

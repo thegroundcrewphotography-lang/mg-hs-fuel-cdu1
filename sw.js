@@ -1,4 +1,4 @@
-const CACHE="fuel-cdu-v6-shell-1";
+const CACHE="fuel-cdu-v7-shell-1";
 const SHELL=["./","./index.html","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
 
 self.addEventListener("install",event=>{
