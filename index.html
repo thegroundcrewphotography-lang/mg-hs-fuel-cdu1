@@ -12,7 +12,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>TheGroundCrew Fuel CDU v8.5 — MG HS PHEV</title>
+<title>TheGroundCrew Fuel CDU v8.6 — MG HS PHEV</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -146,6 +146,65 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   paint-order:stroke;stroke:#071013;stroke-width:5px
 }
 
+
+.ndPanel{
+  max-width:780px;margin:10px auto 0;background:#101518;border:1px solid #323a3f;border-radius:15px;
+  padding:10px;font-family:system-ui,sans-serif;color:#dce5e0
+}
+.ndTop{
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-bottom:8px
+}
+.ndTitle{font-size:12px;font-weight:950;letter-spacing:.09em;text-transform:uppercase}
+.ndCenter{font-size:11px;color:#8cff9a;text-align:center;font-weight:900;letter-spacing:.08em}
+.ndMeta{font-size:10px;color:#9fada6;text-align:right;line-height:1.25}
+#planMap{
+  height:430px;border-radius:11px;overflow:hidden;background:#050a0c;border:1px solid #202a2d;
+}
+.ndCanvas{width:100%;height:100%;display:block;background:#050a0c}
+.ndGrid{stroke:#162226;stroke-width:1;opacity:.55}
+.ndRing{fill:none;stroke:#31515a;stroke-width:1.4;opacity:.75}
+.ndRingMajor{fill:none;stroke:#4d717a;stroke-width:1.8;opacity:.9}
+.ndTick{stroke:#779299;stroke-width:2}
+.ndHeading{fill:#dce7e2;font-size:17px;font-weight:900;letter-spacing:.06em}
+.ndSmall{
+  fill:#9fb0ab;font-size:13px;font-weight:750;letter-spacing:.04em;
+  paint-order:stroke;stroke:#050a0c;stroke-width:4px;stroke-linejoin:round
+}
+.ndLabel{
+  fill:#e4ece8;font-size:16px;font-weight:850;letter-spacing:.04em;
+  paint-order:stroke;stroke:#050a0c;stroke-width:5px;stroke-linejoin:round
+}
+.ndRouteShadow{fill:none;stroke:#000;stroke-width:13;stroke-linecap:round;stroke-linejoin:round;opacity:.8}
+.ndRoute{fill:none;stroke:#d75cff;stroke-width:5.5;stroke-linecap:round;stroke-linejoin:round}
+.ndPassed{fill:none;stroke:#43545a;stroke-width:5.5;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
+.ndTown{fill:#e1e8e5;stroke:#050a0c;stroke-width:2}
+.ndDest{fill:#ff62d4;stroke:#fff;stroke-width:1.8}
+.ndPpos{fill:#000;stroke:#fff;stroke-width:2.5}
+.ndFuel{fill:#62ff8a;stroke:#08100a;stroke-width:2}
+.ndAlt{fill:#dce6e2;stroke:#050a0c;stroke-width:2}
+.ndPref{fill:#ffd45e;stroke:#050a0c;stroke-width:2}
+.ndLatest{fill:#ff6969;stroke:#050a0c;stroke-width:2}
+.ndStatus{
+  fill:#8cff9a;font-size:15px;font-weight:900;letter-spacing:.05em;
+  paint-order:stroke;stroke:#050a0c;stroke-width:5px
+}
+.ndControls{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:8px
+}
+.ndBtn{
+  min-height:44px;border:1px solid #445057;border-radius:10px;background:#283036;color:#e7ecea;
+  font-weight:900;font-size:11px;letter-spacing:.04em
+}
+.ndBtn:active{transform:translateY(1px);background:#354148}
+.ndLegend{display:flex;gap:10px;flex-wrap:wrap;margin-top:7px;font-size:10px;color:#aebbb5}
+.ndHint{font-size:10px;color:#889792;margin-top:6px;line-height:1.4}
+@media(max-width:520px){
+  #planMap{height:390px}
+  .ndTop{grid-template-columns:1fr auto}
+  .ndMeta{grid-column:1/3;text-align:left}
+  .ndControls{grid-template-columns:repeat(2,1fr)}
+}
+
 </style>
 </head>
 <body>
@@ -163,7 +222,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </div>
 
   <div class="cdu">
-    <div class="unitLabel">MG HS PHEV • FUEL CDU v8.5</div>
+    <div class="unitLabel">MG HS PHEV • FUEL CDU v8.6</div>
 
     <div class="displayrow">
       <div class="lsks">
@@ -228,25 +287,32 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
       <button id="fullTankKey" class="key">FULL TANK<br>@ PPOS</button>
       <button id="syncTankKey" class="key">SYNC FUEL<br>@ PPOS</button>
       <button id="autoKey" class="key">AUTO DATA<br>ON/OFF</button>
-      <button id="mapKey" class="key">PLAN<br>MAP</button>
+      <button id="mapKey" class="key">NAV<br>DISP</button>
     </div>
   </div>
 
 
-  <section id="planMapPanel" class="planMapPanel" hidden>
-    <div class="planMapHead">
-      <div>
-        <div class="planMapTitle">Planned Road Course</div>
-        <div class="routeEditHint">Route overview only — no turn-by-turn directions.</div>
-      </div>
-      <div id="planMapMeta" class="planMapMeta">NO ACTIVE ROUTE</div>
+
+  <section id="planMapPanel" class="ndPanel" hidden>
+    <div class="ndTop">
+      <div class="ndTitle">Navigation Display</div>
+      <div id="ndModeReadout" class="ndCenter">TRK UP • 40KM</div>
+      <div id="planMapMeta" class="ndMeta">NO ACTIVE ROUTE</div>
     </div>
     <div id="planMap"></div>
-    <div class="mapLegend">
-      <span><span class="mapDot"></span>Major towns / LEGS</span>
-      <span>⛽ Primary P98</span>
-      <span>GPS / PPOS</span>
+    <div class="ndControls">
+      <button id="ndRangeDown" class="ndBtn">RANGE −</button>
+      <button id="ndRangeUp" class="ndBtn">RANGE +</button>
+      <button id="ndModeBtn" class="ndBtn">TRK / NORTH</button>
+      <button id="ndCenterBtn" class="ndBtn">PPOS / FULL RTE</button>
     </div>
+    <div class="ndLegend">
+      <span>◇ Major town / LEGS</span>
+      <span>● Primary P98</span>
+      <span>★ Preferred fuel</span>
+      <span>◆ Latest safe</span>
+    </div>
+    <div class="ndHint">Aircraft-style situational display only. It does not issue driving directions.</div>
   </section>
 
   <details class="config">
@@ -283,8 +349,8 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </details>
 
   <div class="help">
-    <b>v8.5:</b> origin, destination and optional VIA points now generate a real road-network course. Fuel distance, GPS route position, refuel windows and station projection use that routed course rather than the old hand-built kilometre anchors.
-    The <b>LEGS</b> pages show the origin, major towns along the route, user VIA points and destination in route order. <b>PLAN MAP</b> is an overview of the planned course only; the CDU does not issue driving directions.
+    <b>v8.6:</b> origin, destination and optional VIA points now generate a real road-network course. Fuel distance, GPS route position, refuel windows and station projection use that routed course rather than the old hand-built kilometre anchors.
+    The <b>LEGS</b> pages show the origin, major towns along the route, user VIA points and destination in route order. <b>NAV DISPLAY</b> is an overview of the planned course only; the CDU does not issue driving directions.
     P98 pricing remains NSW FuelCheck based. To set actual fuel at your current position, type the tank percentage into the FMC scratchpad and press SYNC FUEL @ PPOS. FULL TANK @ PPOS sets 100%. The tank quantity is then estimated forward from that sync unless vehicle telemetry is added later. v8.3 also keeps the last active route and route-entry data in a version-independent persistent state so upgrades do not intentionally clear the trip. Do not operate the CDU while driving.
   </div>
 </div>
@@ -293,7 +359,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
 "use strict";
 
 /* ================================================================
-   THEGROUNDCREW FUEL CDU v8.5
+   THEGROUNDCREW FUEL CDU v8.6
    Dynamic road route + FMC-style route management + town LEGS.
    ================================================================ */
 
@@ -303,7 +369,7 @@ const DEFAULT_DEST = "Metford NSW";
 const DEFAULT_FUEL_PROXY = "https://wogkbvjsnmmqbataynap.supabase.co/functions/v1/fuelcheck-proxy";
 const DEFAULT_ROUTE_PROXY = "https://wogkbvjsnmmqbataynap.supabase.co/functions/v1/route-plan-proxy";
 const STATE_KEY="fuelCduState";
-const STATE_VERSION="8.5";
+const STATE_VERSION="8.6";
 
 const DEMO_KEY="1MYSRAx5yvqHUZc6VGtxix6oMA2qgfRT";
 const DEMO_SECRET="BMvWacw15Et8uFGF";
@@ -340,6 +406,10 @@ let messages=[];
 let installPrompt=null, swReady=false;
 
 let mapVisible=false, map=null, mapLayers=null, lastMappedRouteKey="";
+const ND_RANGES=[2,5,10,20,40,80,160,320];
+let ndRangeIndex=4;
+let ndOrientation="TRK";
+let ndCenterMode="PPOS";
 
 const $=id=>document.getElementById(id);
 const val=id=>parseFloat($(id).value);
@@ -853,7 +923,7 @@ function render(){
    setHead("FUEL CDU MENU","","1/1");
    out+=L("","<RTE>","c","","<PROGRESS>","c");
    out+=L("","<LEGS>","c","","<FUEL>","c");
-   out+=L("","<PERF INIT>","c","","<PLAN MAP>","c");
+   out+=L("","<PERF INIT>","c","","<NAV DISPLAY>","c");
    out+=L("","<DATA STATUS>","c","","<ALTERNATES>","c");
    out+=L("ROAD RTE",routeReady()?"ACTIVE":"NOT SET",routeReady()?"g":"a","EXEC",routeExecPending||fuelExecPending?"PENDING":"NONE",routeExecPending||fuelExecPending?"a":"d");
    out+=L("","THEGROUNDCREW","d","","MG HS PHEV","d");
@@ -1191,141 +1261,255 @@ function maybeMigrateLegacyFuel(){
  legacyFuelMigrated=true;legacyFuelState=null;addMessage("v7 FUEL STATE MIGRATED — VERIFY","AMBER");save();render();
 }
 
-/* ------------------------- Planned course overview ------------------------- */
+/* ------------------------- Aircraft-style Navigation Display ------------------------- */
 function toggleMap(){
  mapVisible=!mapVisible;
  $("planMapPanel").hidden=!mapVisible;
  if(mapVisible)setTimeout(()=>renderMap(true),40);
 }
-
-function courseStatusText(){
+function currentNdRange(){return ND_RANGES[clamp(ndRangeIndex,0,ND_RANGES.length-1)]}
+function norm360(x){return (x%360+360)%360}
+function bearingDeg(lat1,lon1,lat2,lon2){
+ const p1=lat1*Math.PI/180,p2=lat2*Math.PI/180,dl=(lon2-lon1)*Math.PI/180;
+ const y=Math.sin(dl)*Math.cos(p2);
+ const x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+ return norm360(Math.atan2(y,x)*180/Math.PI);
+}
+function routeTrackAtKm(km){
+ const pts=routePoints();
+ if(pts.length<2)return 0;
+ let i=0;
+ while(i<pts.length-2 && pts[i+1].km<km)i++;
+ const a=pts[Math.max(0,i)],b=pts[Math.min(pts.length-1,i+1)];
+ return bearingDeg(a.lat,a.lon,b.lat,b.lon);
+}
+function ndTrack(){
+ if(gps&&Number.isFinite(gps.heading)&&gps.heading>=0)return norm360(gps.heading);
+ if(routeReady())return routeTrackAtKm(routeKm());
+ return 0;
+}
+function ndStatusText(){
  if(!routeReady())return "NO ACTIVE ROUTE";
- const f=fuel(),win=refuelWindow();
+ const win=refuelWindow();
  if(win.noRefuelRequired)return `DEST SAFE • ${pct(win.homeWorst/TANK_CAP*100)} @ DEST`;
  if(win.overdue)return "FUEL LIMIT EXCEEDED";
  if(win.active)return "REFUEL WINDOW ACTIVE";
+ if(win.distLatest<=15)return "LATEST SAFE APPROACHING";
  if(win.distPref<=15)return "PREFERRED REFUEL APPROACHING";
  return "FUEL PLAN NORMAL";
 }
-function svgEscape(s){return esc(s)}
-function svgText(x,y,text,cls="courseSmall",anchor="start"){
- return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="${cls}" text-anchor="${anchor}">${svgEscape(text)}</text>`;
+function ndSvgText(x,y,text,cls="ndSmall",anchor="start"){
+ return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="${cls}" text-anchor="${anchor}">${esc(text)}</text>`;
 }
-function decimatePoints(pts,maxPts=420){
- if(pts.length<=maxPts)return pts;
- const step=(pts.length-1)/(maxPts-1),out=[];
- for(let i=0;i<maxPts;i++)out.push(pts[Math.min(pts.length-1,Math.round(i*step))]);
- return out;
+function ndLocalKm(lat,lon,olat,olon){
+ const mean=(lat+olat)/2*Math.PI/180;
+ return {
+   east:(lon-olon)*111.32*Math.cos(mean),
+   north:(lat-olat)*110.57
+ };
 }
-function makeCourseTransform(pts){
- const all=[...pts];
- if(gps)all.push({lat:gps.lat,lon:gps.lon});
- const fp=displayFuelPrimary();
- if(fp&&!fp.noRefuel&&Number.isFinite(fp.lat)&&Number.isFinite(fp.lon))all.push(fp);
- let minLat=Math.min(...all.map(p=>p.lat)),maxLat=Math.max(...all.map(p=>p.lat));
- let minLon=Math.min(...all.map(p=>p.lon)),maxLon=Math.max(...all.map(p=>p.lon));
- let dLat=Math.max(.01,maxLat-minLat),dLon=Math.max(.01,maxLon-minLon);
- minLat-=dLat*.10;maxLat+=dLat*.10;minLon-=dLon*.10;maxLon+=dLon*.10;
- dLat=maxLat-minLat;dLon=maxLon-minLon;
- const W=1000,H=560,padX=55,padY=48;
- return p=>({
-   x:padX+(p.lon-minLon)/dLon*(W-padX*2),
-   y:padY+(maxLat-p.lat)/dLat*(H-padY*2)
- });
+function rotateXY(east,north,deg){
+ const a=deg*Math.PI/180,c=Math.cos(a),s=Math.sin(a);
+ return {x:east*c-north*s,y:east*s+north*c};
+}
+function nearestRoutePointForKm(km){
+ return pointAtKm(clamp(km,0,routeTotal()));
+}
+function ndOwnshipSvg(x,y){
+ return `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)})">
+   <path d="M0,-16 L5,-2 L14,2 L14,6 L4,4 L4,14 L9,18 L9,21 L0,18 L-9,21 L-9,18 L-4,14 L-4,4 L-14,6 L-14,2 L-5,-2 Z"
+     class="ndPpos"/>
+ </g>`;
+}
+function ndDiamond(x,y,cls,size=7){
+ return `<polygon points="${x},${y-size} ${x+size},${y} ${x},${y+size} ${x-size},${y}" class="${cls}"/>`;
+}
+function ndStar(x,y,cls="ndPref"){
+ const r1=10,r2=4.5,pts=[];
+ for(let i=0;i<10;i++){
+   const a=-Math.PI/2+i*Math.PI/5,r=i%2===0?r1:r2;
+   pts.push(`${(x+Math.cos(a)*r).toFixed(1)},${(y+Math.sin(a)*r).toFixed(1)}`);
+ }
+ return `<polygon points="${pts.join(" ")}" class="${cls}"/>`;
 }
 function renderMap(forceFit=false){
  if(!mapVisible)return;
 
+ const range=currentNdRange();
+ const mode=ndOrientation==="NORTH"?"NORTH UP":"TRK UP";
+ $("ndModeReadout").textContent=`${mode} • ${range}KM • ${ndCenterMode==="FULL"?"FULL RTE":"PPOS"}`;
+
  if(!routeReady()){
-   const last=routeDraft?.dest?short(routeDraft.dest):"";
-   $("planMapMeta").textContent=last?`RTE NOT ACTIVE • LAST DEST ${last}`:"NO ACTIVE ROUTE";
+   $("planMapMeta").textContent=routeDraft?.dest?`LAST DEST ${short(routeDraft.dest)}`:"NO ACTIVE ROUTE";
    $("planMap").innerHTML=`
-     <svg class="courseCanvas" viewBox="0 0 1000 560" role="img" aria-label="No active road route">
-       <line class="courseGrid" x1="0" y1="140" x2="1000" y2="140"/><line class="courseGrid" x1="0" y1="280" x2="1000" y2="280"/>
-       <line class="courseGrid" x1="0" y1="420" x2="1000" y2="420"/><line class="courseGrid" x1="250" y1="0" x2="250" y2="560"/>
-       <line class="courseGrid" x1="500" y1="0" x2="500" y2="560"/><line class="courseGrid" x1="750" y1="0" x2="750" y2="560"/>
-       ${svgText(500,250,"NO ACTIVE ROAD ROUTE","courseLabel","middle")}
-       ${svgText(500,286,last?`LAST DEST ${last}`:"SET ORIGIN / DEST ON RTE PAGE","courseSmall","middle")}
+     <svg class="ndCanvas" viewBox="0 0 1000 600">
+       <circle cx="500" cy="360" r="250" class="ndRingMajor"/>
+       <circle cx="500" cy="360" r="125" class="ndRing"/>
+       ${ndSvgText(500,280,"NO ACTIVE ROAD ROUTE","ndLabel","middle")}
+       ${ndSvgText(500,310,"SET / CALCULATE / EXEC ON RTE PAGE","ndSmall","middle")}
      </svg>`;
    return;
  }
 
- const pts=decimatePoints(routePoints()),toXY=makeCourseTransform(pts);
- const xy=pts.map(toXY);
- const poly=xy.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+ const f=fuel(),total=routeTotal(),now=f.now;
+ const heading=ndTrack();
+ const centerKm = ndCenterMode==="FULL" ? total/2 : now;
+ const centerPt = nearestRoutePointForKm(centerKm) || routePoints()[0];
 
- const now=routeKm(),splitIdx=Math.max(0,pts.findIndex(p=>p.km>=now));
- const passed=splitIdx>1?pts.slice(0,splitIdx+1).map(toXY).map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "):"";
+ // Display centre: PPOS mode places ownship low-centre like an aircraft ND.
+ const W=1000,H=600;
+ const cx=500, cy=ndCenterMode==="FULL"?320:455;
+ const usableRadius=255;
+ const scale=usableRadius/range;
 
- const f=fuel(),win=refuelWindow(),legs=routeLegs(),choice=chooseFuel();
- const primary=displayFuelPrimary();
- const alts=(choice.alts||[]).slice(0,2).map(calcStation);
+ const orient = ndOrientation==="TRK" ? -heading : 0;
 
- const labels=[];
- legs.forEach((leg,idx)=>{
-   const q=toXY(leg);
-   const isO=leg.type==="ORIGIN",isD=leg.type==="DEST";
-   const cls=isO?"courseOrigin":isD?"courseDest":"courseTown";
-   const r=isO||isD?9:6;
-   labels.push(`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r}" class="${cls}"/>`);
-   const anchor=q.x>820?"end":q.x<180?"start":idx%2?"start":"end";
-   const dx=anchor==="end"?-11:11,dy=(idx%2? -10:24);
-   labels.push(svgText(q.x+dx,q.y+dy,short(leg.name).slice(0,18),isO||isD?"courseLabel":"courseSmall",anchor));
-   if(!isO&&!isD)labels.push(svgText(q.x+dx,q.y+dy+17,`RTE ${leg.km.toFixed(0)}`,"courseSmall",anchor));
- });
-
- if(gps){
-   const q=toXY({lat:gps.lat,lon:gps.lon});
-   labels.push(`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="10" class="courseGps"/>`);
-   labels.push(svgText(q.x+14,q.y-13,`PPOS ${f.now.toFixed(0)}KM`,"courseLabel","start"));
+ function project(lat,lon){
+   const local=ndLocalKm(lat,lon,centerPt.lat,centerPt.lon);
+   const rot=rotateXY(local.east,local.north,orient);
+   return {x:cx+rot.x*scale,y:cy-rot.y*scale};
  }
 
+ // Draw route within a slightly larger window than the selected range
+ const pts=routePoints();
+ const visible=[];
+ for(const p of pts){
+   const d=hav(centerPt.lat,centerPt.lon,p.lat,p.lon);
+   if(d<=range*1.55)visible.push(p);
+ }
+ if(visible.length<2){
+   // Guarantee nearby segment even for very small ranges.
+   let idx=0;
+   while(idx<pts.length-1 && pts[idx].km<centerKm)idx++;
+   const a=Math.max(0,idx-12),b=Math.min(pts.length,idx+13);
+   visible.splice(0,visible.length,...pts.slice(a,b));
+ }
+ const poly=visible.map(p=>project(p.lat,p.lon)).map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
+
+ const passedPts=visible.filter(p=>p.km<=now);
+ const passed=passedPts.length>1?passedPts.map(p=>project(p.lat,p.lon)).map(q=>`${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" "):"";
+
+ const shapes=[];
+
+ // Range rings
+ const ringR=[usableRadius/2, usableRadius];
+ ringR.forEach((r,i)=>shapes.push(`<circle cx="${cx}" cy="${cy}" r="${r}" class="${i?"ndRingMajor":"ndRing"}"/>`));
+
+ // Cardinal / heading ticks
+ for(let rel=0;rel<360;rel+=30){
+   const screenDeg = ndOrientation==="TRK" ? rel : rel-heading;
+   const a=(screenDeg-90)*Math.PI/180;
+   const r1=usableRadius+6,r2=usableRadius+(rel%90===0?22:15);
+   const x1=cx+Math.cos(a)*r1,y1=cy+Math.sin(a)*r1,x2=cx+Math.cos(a)*r2,y2=cy+Math.sin(a)*r2;
+   shapes.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" class="ndTick"/>`);
+   const absolute = ndOrientation==="TRK" ? norm360(heading+rel) : norm360(rel);
+   if(rel%60===0){
+     const tx=cx+Math.cos(a)*(r2+18),ty=cy+Math.sin(a)*(r2+18)+5;
+     shapes.push(ndSvgText(tx,ty,String(Math.round(absolute/10)).padStart(2,"0"),"ndSmall","middle"));
+   }
+ }
+
+ // Route
+ shapes.push(`<polyline points="${poly}" class="ndRouteShadow"/>`);
+ shapes.push(`<polyline points="${poly}" class="ndRoute"/>`);
+ if(passed)shapes.push(`<polyline points="${passed}" class="ndPassed"/>`);
+
+ // LEGS towns / dest
+ const legs=routeLegs();
+ legs.forEach((leg,i)=>{
+   const q=project(leg.lat,leg.lon);
+   if(q.x<-40||q.x>1040||q.y<-40||q.y>640)return;
+   const isDest=leg.type==="DEST";
+   if(isDest)shapes.push(ndDiamond(q.x,q.y,"ndDest",9));
+   else if(leg.type!=="ORIGIN")shapes.push(ndDiamond(q.x,q.y,"ndTown",6));
+   if(leg.type!=="ORIGIN"){
+     const anchor=q.x>760?"end":"start";
+     const dx=anchor==="end"?-10:10;
+     shapes.push(ndSvgText(q.x+dx,q.y-10,short(leg.name).slice(0,16),isDest?"ndLabel":"ndSmall",anchor));
+   }
+ });
+
+ // Preferred and latest safe points
+ const win=refuelWindow();
  if(!win.noRefuelRequired){
-   const pref=pointAtKm(clamp(win.rawPrefKm,0,routeTotal()));
-   const late=pointAtKm(clamp(win.rawLatestKm,0,routeTotal()));
+   const pref=pointAtKm(clamp(win.rawPrefKm,0,total));
+   const late=pointAtKm(clamp(win.rawLatestKm,0,total));
    if(pref){
-     const q=toXY(pref);
-     labels.push(`<polygon points="${q.x},${q.y-11} ${q.x+4},${q.y-4} ${q.x+12},${q.y-3} ${q.x+6},${q.y+3} ${q.x+8},${q.y+11} ${q.x},${q.y+7} ${q.x-8},${q.y+11} ${q.x-6},${q.y+3} ${q.x-12},${q.y-3} ${q.x-4},${q.y-4}" class="coursePref"/>`);
-     labels.push(svgText(q.x+15,q.y-10,"PREF FUEL","courseSmall","start"));
+     const q=project(pref.lat,pref.lon);
+     if(q.x>-30&&q.x<1030&&q.y>-30&&q.y<630){
+       shapes.push(ndStar(q.x,q.y,"ndPref"));
+       shapes.push(ndSvgText(q.x+13,q.y-11,"PREF","ndSmall","start"));
+     }
    }
    if(late){
-     const q=toXY(late);
-     labels.push(`<rect x="${(q.x-7).toFixed(1)}" y="${(q.y-7).toFixed(1)}" width="14" height="14" transform="rotate(45 ${q.x.toFixed(1)} ${q.y.toFixed(1)})" class="courseLatest"/>`);
-     labels.push(svgText(q.x+14,q.y+21,"LATEST SAFE","courseSmall","start"));
+     const q=project(late.lat,late.lon);
+     if(q.x>-30&&q.x<1030&&q.y>-30&&q.y<630){
+       shapes.push(ndDiamond(q.x,q.y,"ndLatest",8));
+       shapes.push(ndSvgText(q.x+12,q.y+20,"LATEST","ndSmall","start"));
+     }
    }
  }
 
+ // Fuel primary + alternates
+ const primary=displayFuelPrimary();
  if(primary&&!primary.noRefuel&&Number.isFinite(primary.lat)&&Number.isFinite(primary.lon)){
-   const q=toXY(primary);
-   labels.push(`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="9" class="courseFuel"/>`);
-   labels.push(svgText(q.x+13,q.y-13,`P98 ${short(primary.name).slice(0,13)}`,"courseSmall","start"));
+   const q=project(primary.lat,primary.lon);
+   if(q.x>-30&&q.x<1030&&q.y>-30&&q.y<630){
+     shapes.push(`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="8" class="ndFuel"/>`);
+     shapes.push(ndSvgText(q.x+11,q.y-11,`P98 ${short(primary.name).slice(0,12)}`,"ndSmall","start"));
+   }
  }
+ const alts=(chooseFuel().alts||[]).slice(0,2).map(calcStation);
  alts.forEach((a,i)=>{
    if(!Number.isFinite(a.lat)||!Number.isFinite(a.lon))return;
-   const q=toXY(a);
-   labels.push(`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="6" class="courseAlt"/>`);
-   labels.push(svgText(q.x+10,q.y+18,`A${i+1}`,"courseSmall","start"));
+   const q=project(a.lat,a.lon);
+   if(q.x>-30&&q.x<1030&&q.y>-30&&q.y<630){
+     shapes.push(`<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="5" class="ndAlt"/>`);
+     shapes.push(ndSvgText(q.x+8,q.y+15,`A${i+1}`,"ndSmall","start"));
+   }
  });
 
- const routeSummary=`${short(originName())} → ${short(destName())} • ${routeTotal().toFixed(0)} KM • GPS ${gps?"TRACK":"OFF"}`;
- $("planMapMeta").textContent=routeSummary;
+ // PPOS / ownship
+ let own;
+ if(gps)own=project(gps.lat,gps.lon);
+ else {
+   const p=pointAtKm(now)||centerPt;
+   own=project(p.lat,p.lon);
+ }
+ shapes.push(ndOwnshipSvg(own.x,own.y));
+ shapes.push(ndSvgText(own.x+16,own.y+23,`PPOS ${now.toFixed(0)}KM`,"ndSmall","start"));
+
+ const distHome=Math.max(0,total-now);
+ const destFuel=win.noRefuelRequired?pct(win.homeWorst/TANK_CAP*100):"---";
+ const fuelPct=pct(f.planL/TANK_CAP*100);
+
+ $("planMapMeta").textContent=`${short(destName())} • ${distHome.toFixed(0)}KM TO GO • FUEL ${fuelPct}`;
 
  $("planMap").innerHTML=`
-   <svg class="courseCanvas" viewBox="0 0 1000 560" role="img" aria-label="Planned road course">
-     <line class="courseGrid" x1="0" y1="140" x2="1000" y2="140"/>
-     <line class="courseGrid" x1="0" y1="280" x2="1000" y2="280"/>
-     <line class="courseGrid" x1="0" y1="420" x2="1000" y2="420"/>
-     <line class="courseGrid" x1="250" y1="0" x2="250" y2="560"/>
-     <line class="courseGrid" x1="500" y1="0" x2="500" y2="560"/>
-     <line class="courseGrid" x1="750" y1="0" x2="750" y2="560"/>
-     <polyline points="${poly}" class="courseRouteShadow"/>
-     <polyline points="${poly}" class="courseRoute"/>
-     ${passed?`<polyline points="${passed}" class="coursePassed"/>`:""}
-     ${labels.join("")}
-     ${svgText(24,32,courseStatusText(),"courseStatus","start")}
-     ${svgText(976,32,`${f.home.toFixed(0)}KM TO DEST`,"courseSmall","end")}
+   <svg class="ndCanvas" viewBox="0 0 1000 600" role="img" aria-label="Aircraft-style navigation display">
+     ${shapes.join("")}
+     ${ndSvgText(500,29,`${Math.round(heading).toString().padStart(3,"0")}°`,"ndHeading","middle")}
+     ${ndSvgText(24,30,ndStatusText(),"ndStatus","start")}
+     ${ndSvgText(976,30,`DEST ${distHome.toFixed(0)}KM`,"ndSmall","end")}
+     ${ndSvgText(24,575,`RNG ${range}KM`,"ndSmall","start")}
+     ${ndSvgText(500,575,ndOrientation==="TRK"?"TRK UP":"NORTH UP","ndSmall","middle")}
+     ${ndSvgText(976,575,win.noRefuelRequired?`DEST FUEL ${destFuel}`:`FUEL ${fuelPct}`,"ndSmall","end")}
    </svg>`;
 }
+
+$("ndRangeDown").onclick=()=>{
+ ndRangeIndex=Math.max(0,ndRangeIndex-1);save();renderMap(true);
+};
+$("ndRangeUp").onclick=()=>{
+ ndRangeIndex=Math.min(ND_RANGES.length-1,ndRangeIndex+1);save();renderMap(true);
+};
+$("ndModeBtn").onclick=()=>{
+ ndOrientation=ndOrientation==="TRK"?"NORTH":"TRK";save();renderMap(true);
+};
+$("ndCenterBtn").onclick=()=>{
+ ndCenterMode=ndCenterMode==="PPOS"?"FULL":"PPOS";save();renderMap(true);
+};
+
 /* ------------------------- Persistence / PWA ------------------------- */
 function setAuto(){
  clearInterval(autoTimer);autoTimer=null;
@@ -1346,7 +1530,10 @@ function buildStateObject(){
    lastDataAt,
    lastDataStatus,
    lastRefreshRouteKm,
-   legacyFuelMigrated
+   legacyFuelMigrated,
+   ndRangeIndex,
+   ndOrientation,
+   ndCenterMode
  };
 }
 function save(){
@@ -1354,7 +1541,7 @@ function save(){
  /* Stable key survives app version changes. */
  localStorage.setItem(STATE_KEY,JSON.stringify(state));
  /* Version backup retained for rollback/debug. */
- localStorage.setItem("fuelCduV85",JSON.stringify(state));
+ localStorage.setItem("fuelCduV86",JSON.stringify(state));
 }
 function saveRouteDraft(){
  try{
@@ -1372,6 +1559,7 @@ function load(){
  let x=null;
  const keys=[
    STATE_KEY,
+   "fuelCduV86",
    "fuelCduV85",
    "fuelCduV84",
    "fuelCduV83",
@@ -1409,6 +1597,9 @@ function load(){
    lastDataStatus=x.lastDataStatus||"NOT CONNECTED";
    lastRefreshRouteKm=Number.isFinite(x.lastRefreshRouteKm)?x.lastRefreshRouteKm:null;
    legacyFuelMigrated=!!x.legacyFuelMigrated;
+   ndRangeIndex=clamp(Number.isFinite(x.ndRangeIndex)?x.ndRangeIndex:4,0,ND_RANGES.length-1);
+   ndOrientation=x.ndOrientation==="NORTH"?"NORTH":"TRK";
+   ndCenterMode=x.ndCenterMode==="FULL"?"FULL":"PPOS";
 
    if(activeRoute){
      activeRouteToDraft();
@@ -1446,7 +1637,7 @@ window.addEventListener("appinstalled",()=>{$("installBtn").hidden=true;addMessa
 
 $("saveCfg").onclick=()=>{save();addMessage("STATE SAVED","GREEN");render()};
 $("clearLive").onclick=()=>{liveStations=[];lastDataAt=0;lastDataStatus="CLEARED";lastRefreshRouteKm=null;activeFuelPlan=null;evaluateFuelPlanChange(true);save();render();renderMap()};
-$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU v8.5 route and trip data?")){[STATE_KEY,"fuelCduV85","fuelCduV84","fuelCduV83","fuelCduV82","fuelCduV81","fuelCduV8"].forEach(k=>localStorage.removeItem(k));location.reload()}};
+$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU v8.6 route and trip data?")){[STATE_KEY,"fuelCduV86","fuelCduV85","fuelCduV84","fuelCduV83","fuelCduV82","fuelCduV81","fuelCduV8"].forEach(k=>localStorage.removeItem(k));location.reload()}};
 ["apiMode","refreshMin","refreshMoveKm","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc","proxyUrl","routeProxyUrl","apiKey"]
  .forEach(id=>$(id)?.addEventListener("input",()=>{evaluateFuelPlanChange();save();setAuto();render()}));
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&autoData)maybeAutoRefreshFromMovement();else if(document.hidden)save()});
