@@ -12,7 +12,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>TheGroundCrew Fuel CDU v8.2 — MG HS PHEV</title>
+<title>TheGroundCrew Fuel CDU v8.3 — MG HS PHEV</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -133,7 +133,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </div>
 
   <div class="cdu">
-    <div class="unitLabel">MG HS PHEV • FUEL CDU v8.2</div>
+    <div class="unitLabel">MG HS PHEV • FUEL CDU v8.3</div>
 
     <div class="displayrow">
       <div class="lsks">
@@ -253,9 +253,9 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </details>
 
   <div class="help">
-    <b>v8.2:</b> origin, destination and optional VIA points now generate a real road-network course. Fuel distance, GPS route position, refuel windows and station projection use that routed course rather than the old hand-built kilometre anchors.
+    <b>v8.3:</b> origin, destination and optional VIA points now generate a real road-network course. Fuel distance, GPS route position, refuel windows and station projection use that routed course rather than the old hand-built kilometre anchors.
     The <b>LEGS</b> pages show the origin, major towns along the route, user VIA points and destination in route order. <b>PLAN MAP</b> is an overview of the planned course only; the CDU does not issue driving directions.
-    P98 pricing remains NSW FuelCheck based. To set actual fuel at your current position, type the tank percentage into the FMC scratchpad and press SYNC FUEL @ PPOS. FULL TANK @ PPOS sets 100%. The tank quantity is then estimated forward from that sync unless vehicle telemetry is added later. Do not operate the CDU while driving.
+    P98 pricing remains NSW FuelCheck based. To set actual fuel at your current position, type the tank percentage into the FMC scratchpad and press SYNC FUEL @ PPOS. FULL TANK @ PPOS sets 100%. The tank quantity is then estimated forward from that sync unless vehicle telemetry is added later. v8.3 also keeps the last active route and route-entry data in a version-independent persistent state so upgrades do not intentionally clear the trip. Do not operate the CDU while driving.
   </div>
 </div>
 
@@ -263,7 +263,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
 "use strict";
 
 /* ================================================================
-   THEGROUNDCREW FUEL CDU v8.2
+   THEGROUNDCREW FUEL CDU v8.3
    Dynamic road route + FMC-style route management + town LEGS.
    ================================================================ */
 
@@ -272,6 +272,9 @@ const DEFAULT_ORIGIN = "Q1 Surfers Paradise";
 const DEFAULT_DEST = "Metford NSW";
 const DEFAULT_FUEL_PROXY = "https://wogkbvjsnmmqbataynap.supabase.co/functions/v1/fuelcheck-proxy";
 const DEFAULT_ROUTE_PROXY = "https://wogkbvjsnmmqbataynap.supabase.co/functions/v1/route-plan-proxy";
+const STATE_KEY="fuelCduState";
+const STATE_VERSION="8.3";
+
 const DEMO_KEY="1MYSRAx5yvqHUZc6VGtxix6oMA2qgfRT";
 const DEMO_SECRET="BMvWacw15Et8uFGF";
 
@@ -542,7 +545,7 @@ function promptRouteValue(kind){
    scratch=x.toUpperCase();if(routeDraft.vias.length<5)routeDraft.vias.push(x.trim());
    else addMessage("MAX 5 VIA POINTS","AMBER");
  }
- routeDirty=true;routePreview=null;routeExecPending=false;page="RTE";scratch="";render();
+ routeDirty=true;routePreview=null;routeExecPending=false;page="RTE";scratch="";saveRouteDraft();render();
 }
 function reverseDraft(){
  const old=routeDraft.origin;
@@ -550,7 +553,7 @@ function reverseDraft(){
  routeDraft.dest=routeDraft.useGpsOrigin?DEFAULT_ORIGIN:old;
  routeDraft.useGpsOrigin=false;
  routeDraft.vias=[...routeDraft.vias].reverse();
- routeDirty=true;routePreview=null;routeExecPending=false;addMessage("MOD RTE REVERSED","AMBER");render();
+ routeDirty=true;routePreview=null;routeExecPending=false;saveRouteDraft();addMessage("MOD RTE REVERSED","AMBER");render();
 }
 function eraseRouteMod(){
  routePreview=null;routeExecPending=false;routeDirty=false;activeRouteToDraft();addMessage("RTE MOD ERASED","GREEN");render();
@@ -905,7 +908,7 @@ function statusMessage(){
  if(!ORIGIN.webTrusted)return "UNTRUSTED ORIGIN — GPS/PWA DISABLED";
  if(routeCalcBusy)return "CALCULATING ROAD ROUTE…";
  if(routeExecPending)return "MOD RTE READY — PRESS EXEC";
- if(!routeReady())return "NO ACTIVE ROAD ROUTE — OPEN RTE PAGE";
+ if(!routeReady())return routeDraft?.dest?"ROAD ROUTE NOT ACTIVE — AUTO RECOVERY AVAILABLE":"NO ACTIVE ROAD ROUTE — OPEN RTE PAGE";
  if(fuelExecPending)return modifiedFuelPlan?.noRefuel?"MOD — NO REFUEL REQUIRED; PRESS EXEC":`MOD FUEL PLAN — PRESS EXEC`;
  if(win.noRefuelRequired)return "DESTINATION REACHABLE WITH CONTINGENCY RESERVE";
  if(win.overdue||f.now>win.rawLatestKm+.5)return "REFUEL LIMIT EXCEEDED — TAKE NEXT SAFE FUEL";
@@ -957,10 +960,10 @@ document.querySelectorAll("[data-lsk]").forEach(b=>b.onclick=()=>{
  if(page==="RTE"){
    if(k==="L1")promptRouteValue("origin");
    else if(k==="R1")promptRouteValue("dest");
-   else if(k==="L2"){routeDraft.useGpsOrigin=true;routeDraft.origin="PRESENT POS";routeDirty=true;routePreview=null;routeExecPending=false;addMessage("MOD ORIGIN — PRESENT POS","AMBER");render()}
+   else if(k==="L2"){routeDraft.useGpsOrigin=true;routeDraft.origin="PRESENT POS";routeDirty=true;routePreview=null;routeExecPending=false;saveRouteDraft();addMessage("MOD ORIGIN — PRESENT POS","AMBER");render()}
    else if(k==="R2")reverseDraft();
    else if(k==="L3")promptRouteValue("via");
-   else if(k==="R3"){routeDraft.vias=[];routeDirty=true;routePreview=null;routeExecPending=false;addMessage("VIA POINTS CLEARED","AMBER");render()}
+   else if(k==="R3"){routeDraft.vias=[];routeDirty=true;routePreview=null;routeExecPending=false;saveRouteDraft();addMessage("VIA POINTS CLEARED","AMBER");render()}
    else if(k==="L6"){if(routeDirty||routeExecPending)eraseRouteMod();else promptRouteValue("origin")}
    else if(k==="R6"){if(routeExecPending)addMessage("PRESS EXEC TO ACTIVATE","GREEN");else calculateRouteDraft()}
    return;
@@ -1005,7 +1008,7 @@ function gpsError(e){
 function acceptGps(p){
  gpsPermission="granted";gps={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy,speed:p.coords.speed,heading:p.coords.heading,at:Date.now()};
  if(routeReady())projected=smoothedProjection(gps.lat,gps.lon);
- maybeMigrateLegacyFuel();maybeAutoRefreshFromMovement();render();renderMap();
+ maybeMigrateLegacyFuel();if(!activeRoute)recoverMissingRoute();maybeAutoRefreshFromMovement();render();renderMap();
 }
 function stopGps(){
  if(gpsWatch!==null)navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;gps=null;$("gpsKey").textContent="GPS\nSTART";addMessage("GPS STOPPED","AMBER");render();renderMap();
@@ -1091,7 +1094,7 @@ function renderMap(forceFit=false){
  }
  map.invalidateSize();mapLayers.clearLayers();
  if(!routeReady()){
-   $("planMapMeta").textContent="NO ACTIVE ROUTE";map.setView([-31.2,152.8],6);return;
+   $("planMapMeta").textContent=routeDraft?.dest?`RTE NOT ACTIVE • LAST DEST ${short(routeDraft.dest)}`:"NO ACTIVE ROUTE";map.setView([-31.2,152.8],6);return;
  }
  const pts=routePoints(),latlngs=pts.map(p=>[p.lat,p.lon]);
  L.polyline(latlngs,{weight:5,opacity:.85}).addTo(mapLayers);
@@ -1118,22 +1121,91 @@ function setAuto(){
  clearInterval(autoTimer);autoTimer=null;
  if(autoData){const m=Math.max(3,safeNum(val("refreshMin"),10));autoTimer=setInterval(()=>{if(!document.hidden)maybeAutoRefreshFromMovement()},Math.min(m,5)*60000)}
 }
-function save(){
+function buildStateObject(){
  const ids=["apiMode","refreshMin","refreshMoveKm","apiKey","proxyUrl","routeProxyUrl","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc"];
  const values={};ids.forEach(id=>values[id]=$(id)?.value??"");
- localStorage.setItem("fuelCduV82",JSON.stringify({values,activeRoute,routeDraft,liveStations,activeFuelPlan,autoData,lastDataAt,lastDataStatus,lastRefreshRouteKm,legacyFuelMigrated}));
+ return {
+   version:STATE_VERSION,
+   savedAt:Date.now(),
+   values,
+   activeRoute,
+   routeDraft,
+   liveStations,
+   activeFuelPlan,
+   autoData,
+   lastDataAt,
+   lastDataStatus,
+   lastRefreshRouteKm,
+   legacyFuelMigrated
+ };
+}
+function save(){
+ const state=buildStateObject();
+ /* Stable key survives app version changes. */
+ localStorage.setItem(STATE_KEY,JSON.stringify(state));
+ /* Version backup retained for rollback/debug. */
+ localStorage.setItem("fuelCduV83",JSON.stringify(state));
+}
+function saveRouteDraft(){
+ try{
+   const prior=JSON.parse(localStorage.getItem(STATE_KEY)||"{}");
+   prior.version=STATE_VERSION;
+   prior.savedAt=Date.now();
+   prior.routeDraft=routeDraft;
+   if(activeRoute)prior.activeRoute=activeRoute;
+   localStorage.setItem(STATE_KEY,JSON.stringify(prior));
+ }catch{
+   save();
+ }
 }
 function load(){
  let x=null;
- try{x=JSON.parse(localStorage.getItem("fuelCduV82")||localStorage.getItem("fuelCduV81")||localStorage.getItem("fuelCduV8")||"null")}catch{}
+ const keys=[
+   STATE_KEY,
+   "fuelCduV83",
+   "fuelCduV82",
+   "fuelCduV81",
+   "fuelCduV8"
+ ];
+ for(const k of keys){
+   if(x)break;
+   try{
+     const raw=localStorage.getItem(k);
+     if(raw)x=JSON.parse(raw);
+   }catch{}
+ }
+
  if(x){
    Object.entries(x.values||{}).forEach(([k,v])=>{if($(k))$(k).value=v});
-   activeRoute=x.activeRoute||null;routeDraft=x.routeDraft||routeDraft;liveStations=Array.isArray(x.liveStations)?x.liveStations:[];
-   activeFuelPlan=x.activeFuelPlan||null;autoData=typeof x.autoData==="boolean"?x.autoData:true;lastDataAt=x.lastDataAt||0;lastDataStatus=x.lastDataStatus||"NOT CONNECTED";
-   lastRefreshRouteKm=Number.isFinite(x.lastRefreshRouteKm)?x.lastRefreshRouteKm:null;legacyFuelMigrated=!!x.legacyFuelMigrated;
-   if(activeRoute)activeRouteToDraft();return;
+   activeRoute=x.activeRoute||null;
+
+   if(x.routeDraft && typeof x.routeDraft==="object"){
+     routeDraft={
+       origin:x.routeDraft.origin||DEFAULT_ORIGIN,
+       dest:x.routeDraft.dest||DEFAULT_DEST,
+       vias:Array.isArray(x.routeDraft.vias)?x.routeDraft.vias:[],
+       useGpsOrigin:!!x.routeDraft.useGpsOrigin
+     };
+   }
+
+   liveStations=Array.isArray(x.liveStations)?x.liveStations:[];
+   activeFuelPlan=x.activeFuelPlan||null;
+   autoData=typeof x.autoData==="boolean"?x.autoData:true;
+   lastDataAt=x.lastDataAt||0;
+   lastDataStatus=x.lastDataStatus||"NOT CONNECTED";
+   lastRefreshRouteKm=Number.isFinite(x.lastRefreshRouteKm)?x.lastRefreshRouteKm:null;
+   legacyFuelMigrated=!!x.legacyFuelMigrated;
+
+   if(activeRoute){
+     activeRouteToDraft();
+   }
+
+   /* Immediately migrate old version state into the permanent key. */
+   try{localStorage.setItem(STATE_KEY,JSON.stringify(buildStateObject()))}catch{}
+   return;
  }
- /* Migrate settings + current fuel estimate from v7 after GPS/accurate route are available. */
+
+ /* Migrate only vehicle/fuel settings from older pre-dynamic-route versions. */
  try{
    const old=JSON.parse(localStorage.getItem("fuelCduV7")||localStorage.getItem("fuelCduV5")||localStorage.getItem("fuelCduV3")||"null");
    if(old?.values){
@@ -1143,7 +1215,12 @@ function load(){
      legacyFuelState={tankPct:tp,syncKm:sk,plan:pc};
    }
  }catch{}
- $("apiMode").value="proxy";$("proxyUrl").value=DEFAULT_FUEL_PROXY;$("routeProxyUrl").value=DEFAULT_ROUTE_PROXY;
+
+ $("apiMode").value="proxy";
+ $("proxyUrl").value=DEFAULT_FUEL_PROXY;
+ $("routeProxyUrl").value=DEFAULT_ROUTE_PROXY;
+
+ routeDraft={origin:DEFAULT_ORIGIN,dest:DEFAULT_DEST,vias:[],useGpsOrigin:false};
 }
 async function registerServiceWorker(){
  if(!("serviceWorker" in navigator)||!ORIGIN.webTrusted)return;
@@ -1155,12 +1232,38 @@ window.addEventListener("appinstalled",()=>{$("installBtn").hidden=true;addMessa
 
 $("saveCfg").onclick=()=>{save();addMessage("STATE SAVED","GREEN");render()};
 $("clearLive").onclick=()=>{liveStations=[];lastDataAt=0;lastDataStatus="CLEARED";lastRefreshRouteKm=null;activeFuelPlan=null;evaluateFuelPlanChange(true);save();render();renderMap()};
-$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU v8.2 route and trip data?")){localStorage.removeItem("fuelCduV82");localStorage.removeItem("fuelCduV81");localStorage.removeItem("fuelCduV8");location.reload()}};
+$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU v8.3 route and trip data?")){[STATE_KEY,"fuelCduV83","fuelCduV82","fuelCduV81","fuelCduV8"].forEach(k=>localStorage.removeItem(k));location.reload()}};
 ["apiMode","refreshMin","refreshMoveKm","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc","proxyUrl","routeProxyUrl","apiKey"]
  .forEach(id=>$(id)?.addEventListener("input",()=>{evaluateFuelPlanChange();save();setAuto();render()}));
-document.addEventListener("visibilitychange",()=>{if(!document.hidden&&autoData)maybeAutoRefreshFromMovement()});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&autoData)maybeAutoRefreshFromMovement();else if(document.hidden)save()});
+window.addEventListener("pagehide",()=>{try{save()}catch{}});
 
 /* ------------------------- Startup ------------------------- */
+
+let routeRecoveryAttempted=false;
+
+async function recoverMissingRoute(){
+ if(routeRecoveryAttempted || activeRoute || !ORIGIN.webTrusted)return;
+ routeRecoveryAttempted=true;
+
+ const hasDest=!!String(routeDraft?.dest||"").trim();
+ const hasOrigin=routeDraft?.useGpsOrigin || !!String(routeDraft?.origin||"").trim();
+ if(!hasDest || !hasOrigin)return;
+
+ if(routeDraft.useGpsOrigin && !gps){
+   addMessage("WAITING GPS — REBUILDING LAST RTE","AMBER");
+   routeRecoveryAttempted=false;
+   return;
+ }
+
+ addMessage("REBUILDING LAST ROAD ROUTE","AMBER");
+ await calculateRouteDraft({autoActivate:true});
+ if(activeRoute){
+   addMessage("LAST ROAD ROUTE RESTORED","GREEN");
+   save();
+ }
+}
+
 async function bootstrap(){
  $("hostWarning").style.display=ORIGIN.webTrusted?"none":"block";
  load();setAuto();await registerServiceWorker();await inspectGpsPermission();
@@ -1168,8 +1271,9 @@ async function bootstrap(){
  if(ORIGIN.webTrusted&&gpsPermission==="granted")startGps(true);
 
  if(!activeRoute&&ORIGIN.webTrusted){
-   routeDraft={origin:DEFAULT_ORIGIN,dest:DEFAULT_DEST,vias:[],useGpsOrigin:false};
-   setTimeout(()=>calculateRouteDraft({autoActivate:true}),500);
+   /* Preserve the last entered origin/destination and rebuild it.
+      Do NOT overwrite routeDraft merely because active route geometry is missing. */
+   setTimeout(()=>recoverMissingRoute(),500);
  }else if(activeRoute){
    if(gps)projected=routeProjection(gps.lat,gps.lon);
    evaluateFuelPlanChange(true);
