@@ -12,7 +12,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
-<title>TheGroundCrew Fuel CDU v8 — MG HS PHEV</title>
+<title>TheGroundCrew Fuel CDU v8.2 — MG HS PHEV</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -133,7 +133,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </div>
 
   <div class="cdu">
-    <div class="unitLabel">MG HS PHEV • FUEL CDU v8</div>
+    <div class="unitLabel">MG HS PHEV • FUEL CDU v8.2</div>
 
     <div class="displayrow">
       <div class="lsks">
@@ -195,8 +195,8 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
     </div>
 
     <div class="footerKeys">
-      <button id="fullTankKey" class="key">FULL TANK<br>@ POS</button>
-      <button id="syncTankKey" class="key">SYNC TANK<br>@ POS</button>
+      <button id="fullTankKey" class="key">FULL TANK<br>@ PPOS</button>
+      <button id="syncTankKey" class="key">SYNC FUEL<br>@ PPOS</button>
       <button id="autoKey" class="key">AUTO DATA<br>ON/OFF</button>
       <button id="mapKey" class="key">PLAN<br>MAP</button>
     </div>
@@ -236,8 +236,8 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
       <div class="field"><label>FuelCheck proxy URL</label><input id="proxyUrl" value="https://wogkbvjsnmmqbataynap.supabase.co/functions/v1/fuelcheck-proxy"></div>
       <div class="field"><label>Road-route proxy URL</label><input id="routeProxyUrl" value="https://wogkbvjsnmmqbataynap.supabase.co/functions/v1/route-plan-proxy"></div>
       <div class="field"><label>Manual route position km</label><input id="manualKm" type="number" step="1" placeholder="blank = GPS"></div>
-      <div class="field"><label>Tank at last sync %</label><input id="tankPct" type="number" step="1" value="100"></div>
-      <div class="field"><label>Route km at last sync</label><input id="syncKm" type="number" step="1" value="0"></div>
+      <div class="field"><label>Fuel % at last sync</label><input id="tankPct" type="number" step="1" value="100"></div>
+      <div class="field"><label>Route km at fuel sync</label><input id="syncKm" type="number" step="1" value="0"></div>
       <div class="field"><label>Planning consumption L/100</label><input id="planCons" type="number" step=".1" value="8.0"></div>
       <div class="field"><label>Contingency consumption L/100</label><input id="worstCons" type="number" step=".1" value="9.0"></div>
       <div class="field"><label>Required reserve %</label><input id="reservePct" type="number" step="1" value="20"></div>
@@ -253,9 +253,9 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
   </details>
 
   <div class="help">
-    <b>v8:</b> origin, destination and optional VIA points now generate a real road-network course. Fuel distance, GPS route position, refuel windows and station projection use that routed course rather than the old hand-built kilometre anchors.
+    <b>v8.2:</b> origin, destination and optional VIA points now generate a real road-network course. Fuel distance, GPS route position, refuel windows and station projection use that routed course rather than the old hand-built kilometre anchors.
     The <b>LEGS</b> pages show the origin, major towns along the route, user VIA points and destination in route order. <b>PLAN MAP</b> is an overview of the planned course only; the CDU does not issue driving directions.
-    P98 pricing remains NSW FuelCheck based. The tank quantity is still an estimate from the last fuel sync unless vehicle telemetry is added later. Do not operate the CDU while driving.
+    P98 pricing remains NSW FuelCheck based. To set actual fuel at your current position, type the tank percentage into the FMC scratchpad and press SYNC FUEL @ PPOS. FULL TANK @ PPOS sets 100%. The tank quantity is then estimated forward from that sync unless vehicle telemetry is added later. Do not operate the CDU while driving.
   </div>
 </div>
 
@@ -263,7 +263,7 @@ body{padding:10px 8px 60px;background:radial-gradient(800px 480px at 50% -20%,#2
 "use strict";
 
 /* ================================================================
-   THEGROUNDCREW FUEL CDU v8
+   THEGROUNDCREW FUEL CDU v8.2
    Dynamic road route + FMC-style route management + town LEGS.
    ================================================================ */
 
@@ -320,10 +320,51 @@ const short=s=>String(s||"").toUpperCase().replace(/\s+/g," ").trim();
 const routeTotal=()=>safeNum(activeRoute?.route?.totalKm,0);
 const routeReady=()=>routeTotal()>0 && Array.isArray(activeRoute?.route?.points) && activeRoute.route.points.length>1;
 const routePoints=()=>activeRoute?.route?.points||[];
-const routeLegs=()=>activeRoute?.route?.legs||[];
+const routeLegs=()=>smartRouteLegs();
 const destName=()=>activeRoute?.destination?.label||routeDraft.dest||"DEST";
 const originName=()=>activeRoute?.origin?.label||routeDraft.origin||"ORIGIN";
 const routeKey=r=>r?.route?`${r.origin?.label}|${r.destination?.label}|${r.route.totalKm.toFixed(1)}|${r.route.points.length}`:"NONE";
+const liveAheadStations=()=>liveStations.filter(x=>x.km>=routeKm()-2 && x.km<=routeTotal()+5 && x.cross<=25);
+
+function townImportance(place){
+ const p=String(place||"").toLowerCase();
+ if(p==="city")return 5;
+ if(p==="town")return 4;
+ if(p==="village")return 2;
+ if(p==="suburb")return 1;
+ return 0;
+}
+function smartRouteLegs(){
+ if(!routeReady())return [];
+ const raw=[...(activeRoute.route.legs||[])];
+ if(raw.length<=2)return raw;
+
+ const origin=raw[0], dest=raw[raw.length-1];
+ const vias=raw.filter(x=>x.type==="VIA");
+ let towns=raw.filter(x=>x!==origin && x!==dest && x.type!=="VIA");
+
+ const total=routeTotal();
+ const minSpacing = total>800 ? 70 : total>500 ? 55 : total>250 ? 35 : total>120 ? 22 : 12;
+
+ towns=towns.map(x=>({...x,_imp:townImportance(x.place)})).sort((a,b)=>a.km-b.km);
+
+ const kept=[];
+ for(const t of towns){
+   if(!kept.length){kept.push(t);continue}
+   const prev=kept[kept.length-1];
+   if(t.km-prev.km>=minSpacing){kept.push(t);continue}
+   if(t._imp>prev._imp)kept[kept.length-1]=t;
+ }
+ if(!kept.length && towns.length)kept.push(towns[Math.floor(towns.length/2)]);
+
+ const all=[origin,...kept,...vias,dest]
+   .filter(Boolean)
+   .sort((a,b)=>a.km-b.km)
+   .filter((x,i,a)=>i===0 || Math.abs(x.km-a[i-1].km)>.3 || x.type==="VIA");
+
+ return all.map(({_imp,...x})=>x);
+}
+
 
 const ORIGIN={
  protocol:location.protocol,
@@ -501,7 +542,7 @@ function promptRouteValue(kind){
    scratch=x.toUpperCase();if(routeDraft.vias.length<5)routeDraft.vias.push(x.trim());
    else addMessage("MAX 5 VIA POINTS","AMBER");
  }
- routeDirty=true;routePreview=null;routeExecPending=false;page="RTE";render();
+ routeDirty=true;routePreview=null;routeExecPending=false;page="RTE";scratch="";render();
 }
 function reverseDraft(){
  const old=routeDraft.origin;
@@ -624,18 +665,19 @@ async function refreshLive(user=false){
  const targetKms=rawTargets.map(x=>clamp(x,0,total)).filter(x=>x>now+3)
    .filter((x,i,a)=>a.findIndex(y=>Math.abs(y-x)<28)===i).slice(0,3);
  try{
-   let count=0,successes=0,errors=[];
+   let rawCount=0,successes=0,errors=[];
    for(const k of targetKms){
      const p=pointAtKm(k);if(!p)continue;
      try{
        const xs=mode==="proxy"?await proxyNearby(p.lat,p.lon,35):await directNearby(p.lat,p.lon,35);
-       mergeLive(xs);count+=xs.length;successes++;
+       rawCount+=xs.length;mergeLive(xs);successes++;
      }catch(e){errors.push(String(e.message||e))}
      if(mode==="demo")await new Promise(r=>setTimeout(r,900));
    }
    if(!successes&&errors.length)throw new Error(errors[0]);
-   lastDataAt=Date.now();lastRefreshRouteKm=now;lastDataStatus=`LIVE ${count} RESULTS`;
-   addMessage(`LIVE P98 UPDATED — ${count} RESULTS`,"GREEN");
+   const uniqueCount=liveAheadStations().length;
+   lastDataAt=Date.now();lastRefreshRouteKm=now;lastDataStatus=`LIVE ${uniqueCount} UNIQUE`;
+   addMessage(`LIVE P98 — ${uniqueCount} UNIQUE`,"GREEN");
    evaluateFuelPlanChange();save();render();renderMap();
  }catch(e){
    lastDataStatus="UPDATE FAILED";addMessage(`DATA FAIL — ${String(e.message||e).slice(0,24)}`,"RED");render();
@@ -729,8 +771,8 @@ function render(){
    out+=L("ORIGIN",short(originName()).slice(0,18),routeReady()?"g":"a","DEST",short(destName()).slice(0,18),routeReady()?"g":"a");
    out+=L("ROAD ROUTE",routeReady()?`${routeTotal().toFixed(0)} KM`:"NOT CALC",routeReady()?"c":"a","P98","NSW FUELCHECK","c");
    out+=L("SYNC POS",`${f.syncKm.toFixed(0)} KM`,"w","SYNC TANK",`${f.tankPct.toFixed(0)}%`,"w");
-   out+=L("GPS",gps?"TRACKING":"NOT ACTIVE",gps?"g":"a","RTE TOWNS",routeReady()?`${activeRoute.route.towns?.length||0}`:"---",routeReady()?"g":"d");
-   out+=L("","<FULL TANK @POS","c","","RTE PAGE>","c");
+   out+=L("GPS",gps?"TRACKING":"NOT ACTIVE",gps?"g":"a","RTE TOWNS",routeReady()?`${smartRouteLegs().filter(x=>x.type!=="ORIGIN"&&x.type!=="DEST"&&x.type!=="VIA").length}`:"---",routeReady()?"g":"d");
+   out+=L("","<FULL TANK @POS","c","SET FUEL @POS","TYPE % + SYNC>","c");
  }
  else if(page==="RTE"){
    const vr=viewedRoute(),rt=routeViewTotal(vr),isMod=routeExecPending&&routePreview;
@@ -739,13 +781,14 @@ function render(){
    const rd=isMod?vr.destination?.label:routeDraft.dest;
    const vv=isMod?(vr.vias||[]).map(x=>x.label):routeDraft.vias;
    const activeNow=routeKm(),toGo=routeReady()?Math.max(0,routeTotal()-activeNow):0;
+   const smartCount=routeReady()?smartRouteLegs().filter(x=>x.type!=="ORIGIN"&&x.type!=="DEST"&&x.type!=="VIA").length:0;
    out+=L("ORIGIN",short(ro).slice(0,19),routeDirty||isMod?"a":"g","DEST",short(rd).slice(0,19),routeDirty||isMod?"a":"g");
    out+=L("PRESENT POS ORIGIN","<USE GPS","c","REVERSE RTE","SWAP>","c");
    out+=L("VIA",vv.length?short(vv[0]).slice(0,19):"<ADD VIA","c","VIA COUNT",`${vv.length} / 5`,vv.length?"c":"d");
-   out+=L("ROAD DIST",rt?`${rt.toFixed(0)}KM`:routeCalcBusy?"CALCULATING":"---",rt?"g":routeCalcBusy?"a":"d","MAJOR TOWNS",rt?`${vr.route.towns?.length||0}`:"---",rt?"g":"d");
+   out+=L("ROAD DIST",rt?`${rt.toFixed(0)}KM`:routeCalcBusy?"CALCULATING":"---",rt?"g":routeCalcBusy?"a":"d","MAJOR TOWNS",rt?`${smartCount}`:"---",rt?"g":"d");
    out+=L("PRESENT POS",routeReady()?`${activeNow.toFixed(0)}KM`:"---","c","TO GO",routeReady()?`${toGo.toFixed(0)}KM`:"---","c");
    out+=L("OFF ROUTE",gps&&routeReady()?`${projected.d.toFixed(1)}KM`:"---",gps&&routeReady()&&projected.d<2?"g":"a","GPS ACC",gps?`${gps.acc.toFixed(0)}M`:"---",gps?"g":"d");
-   out+=L(routeDirty||isMod?"<ERASE MOD":"<EDIT ORIGIN",routeDirty||isMod?"":"LSK L1","c",routeExecPending?"EXEC READY":routeDirty?"CALCULATE":"EDIT DEST",routeExecPending?"PRESS EXEC":routeDirty?"LSK R6":"LSK R1",routeExecPending?"g":"c");
+   out+=L(routeDirty||isMod?"<ERASE MOD":"<EDIT ORIGIN",routeDirty||isMod?"":"LSK L1","c",routeExecPending?"EXEC READY":routeDirty?"CALCULATE>":"EDIT DEST",routeExecPending?"PRESS EXEC":routeDirty?"LSK R6":"LSK R1",routeExecPending?"g":"c");
  }
  else if(page==="PERF"){
    setHead("PERF INIT","","1/1");
@@ -761,6 +804,7 @@ function render(){
    const worstRange=f.worst>0?Math.max(0,f.worstL)/f.worst*100:0,opRange=f.worst>0?Math.max(0,f.worstL-TANK_CAP*f.reserve/100)/f.worst*100:0;
    out+=L("EST FOB",litres(f.planL),"g","CONT FOB",litres(f.worstL),f.worstL>=TANK_CAP*f.reserve/100?"g":"r");
    out+=L("TANK EST",pct(f.planL/TANK_CAP*100),"w","BATTERY",`${f.battery.toFixed(0)}%`,"c");
+   out+=L("LAST FUEL SYNC",`${f.tankPct.toFixed(0)}% @ ${f.syncKm.toFixed(0)}KM`,"c","SYNC MODE","PPOS","c");
    out+=L("CONT RANGE",`${worstRange.toFixed(0)}KM`,"a","OP RANGE",`${opRange.toFixed(0)}KM`,"g");
    if(!routeReady()){
      out+=L("ROAD ROUTE","NOT ACTIVE","r","ACTION","SET RTE","a");
@@ -818,7 +862,11 @@ function render(){
      out+=L(`${icon}${short(x.name).slice(0,18)}`,passed?"PASSED":`${Math.max(0,ahead).toFixed(0)}KM`,cls,
             `${type} / RTE ${x.km.toFixed(0)}`,`EFOB ${litres(efob)}`,efob>=win.reserveL?"g":"a");
    }
-   out+=L("","<PREV PAGE","c","","NEXT PAGE>","c");
+   if(pages>1){
+     out+=L("",subPage>0?"<PREV PAGE":"","c","",subPage<pages-1?"NEXT PAGE>":"","c");
+   }else{
+     out+=L("","","","","","d");
+   }
  }
  else if(page==="DATA"){
    setHead("DATA STATUS","","1/1");
@@ -826,10 +874,10 @@ function render(){
    out+=L("URL SCHEME",prot,ORIGIN.webTrusted?"g":"a","HOST MODE",ORIGIN.webTrusted?"VALID":"LOCAL FILE",ORIGIN.webTrusted?"g":"r");
    out+=L("GPS",gps?"LIVE":"NOT ACTIVE",gps?"g":gpsPermission==="denied"?"r":"a","PERMISSION",gpsPermission.toUpperCase(),gpsPermission==="granted"?"g":gpsPermission==="denied"?"r":"a");
    out+=L("GPS ACC",gps?`${gps.acc.toFixed(0)}M`:"---",gps?"g":"d","OFF ROUTE",gps&&routeReady()?`${projected.d.toFixed(1)}KM`:"---",gps&&projected.d<2?"g":"a");
-   out+=L("ROAD RTE",routeReady()?`${routeTotal().toFixed(0)}KM`:"NOT ACTIVE",routeReady()?"g":"r","TOWNS",routeReady()?`${activeRoute.route.towns?.length||0}`:"---",routeReady()?"g":"d");
+   out+=L("ROAD RTE",routeReady()?`${routeTotal().toFixed(0)}KM`:"NOT ACTIVE",routeReady()?"g":"r","TOWNS",routeReady()?`${smartRouteLegs().filter(x=>x.type!=="ORIGIN"&&x.type!=="DEST"&&x.type!=="VIA").length}`:"---",routeReady()?"g":"d");
    out+=L("FUEL DATA",lastDataStatus.slice(0,18),lastDataAt?"g":"a","SOURCE",mode,"c");
    out+=L("LAST UPDATE",lastDataAt?new Date(lastDataAt).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"NEVER",lastDataAt?"g":"r","AGE",lastDataAt?`${ageMin(lastDataAt).toFixed(0)}MIN`:"---",lastDataAt&&ageMin(lastDataAt)<=15?"g":"a");
-   out+=L("AUTO REFRESH",autoData?`${safeNum(val("refreshMin"),10)}MIN`:"OFF",autoData?"g":"a","LIVE P98",`${liveStations.length} STNS`,liveStations.length?"g":"d");
+   out+=L("AUTO REFRESH",autoData?`${safeNum(val("refreshMin"),10)}MIN`:"OFF",autoData?"g":"a","LIVE P98",`${liveAheadStations().length} UNIQUE`,liveAheadStations().length?"g":"d");
    out+=L("PWA CACHE",ORIGIN.webTrusted?(swReady?"READY":"WAIT"):"N/A",swReady?"g":"a","RTE ENGINE","OSRM/OSM","c");
  }
  else if(page==="ALTN"){
@@ -856,7 +904,7 @@ function statusMessage(){
  if(ORIGIN.isFile)return "FILE:// MODE — OPEN HOSTED HTTPS VERSION";
  if(!ORIGIN.webTrusted)return "UNTRUSTED ORIGIN — GPS/PWA DISABLED";
  if(routeCalcBusy)return "CALCULATING ROAD ROUTE…";
- if(routeExecPending)return "MOD ROAD ROUTE — PRESS EXEC TO ACTIVATE";
+ if(routeExecPending)return "MOD RTE READY — PRESS EXEC";
  if(!routeReady())return "NO ACTIVE ROAD ROUTE — OPEN RTE PAGE";
  if(fuelExecPending)return modifiedFuelPlan?.noRefuel?"MOD — NO REFUEL REQUIRED; PRESS EXEC":`MOD FUEL PLAN — PRESS EXEC`;
  if(win.noRefuelRequired)return "DESTINATION REACHABLE WITH CONTINGENCY RESERVE";
@@ -885,7 +933,13 @@ document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>{page=b.datase
 document.querySelectorAll("[data-char]").forEach(b=>b.onclick=()=>{if(scratch.length<24)scratch+=b.dataset.char;render()});
 $("clrKey").onclick=()=>{if(scratch)scratch=scratch.slice(0,-1);else if(messages.length)messages.shift();render()};
 $("prevKey").onclick=()=>{subPage=Math.max(0,subPage-1);render()};
-$("nextKey").onclick=()=>{subPage++;render()};
+$("nextKey").onclick=()=>{
+ if(page==="LEGS"){
+   const pages=Math.max(1,Math.ceil(routeLegs().length/5));
+   subPage=Math.min(pages-1,subPage+1);
+ }else subPage++;
+ render();
+};
 $("refreshKey").onclick=()=>refreshLive(true);
 $("gpsKey").onclick=()=>gpsWatch===null?startGps():stopGps();
 $("fullTankKey").onclick=()=>syncTank(true);
@@ -894,7 +948,7 @@ $("autoKey").onclick=()=>{autoData=!autoData;setAuto();save();render()};
 $("mapKey").onclick=()=>toggleMap();
 
 $("execKey").onclick=()=>{
- if(routeExecPending&&routePreview){activateRoutePreview(false);addMessage("ROAD ROUTE EXECUTED","GREEN");page="RTE";render();return}
+ if(routeExecPending&&routePreview){activateRoutePreview(false);addMessage("ROAD ROUTE ACTIVE","GREEN");page="RTE";render();return}
  if(fuelExecPending){activeFuelPlan=modifiedFuelPlan;modifiedFuelPlan=null;fuelExecPending=false;addMessage("FUEL MOD EXECUTED","GREEN");save();render();renderMap();return}
 };
 
@@ -958,8 +1012,58 @@ function stopGps(){
 }
 function syncTank(full){
  if(!routeReady()){addMessage("ACTIVE ROAD ROUTE REQUIRED","RED");return}
- const km=routeKm();$("syncKm").value=km.toFixed(1);if(full)$("tankPct").value="100";
- legacyFuelState=null;legacyFuelMigrated=true;addMessage(full?"FULL TANK SYNCHRONISED":"TANK POSITION SYNCHRONISED","GREEN");save();render();
+
+ const km=routeKm();
+ let newPct;
+
+ if(full){
+   newPct=100;
+ }else{
+   /* FMC behaviour:
+      Type fuel percentage in scratchpad, then press SYNC TANK.
+      If scratchpad is empty, ask for the percentage instead. */
+   const typed=String(scratch||"").trim();
+   if(typed){
+     newPct=parseFloat(typed);
+     if(!Number.isFinite(newPct) || newPct<0 || newPct>100){
+       addMessage("INVALID FUEL % — ENTER 0 TO 100","RED");
+       render();
+       return;
+     }
+   }else{
+     const current=clamp(safeNum(parseFloat($("tankPct").value),100),0,100);
+     const answer=prompt("Fuel tank percentage at PRESENT POS (0–100):",current.toFixed(0));
+     if(answer===null)return;
+     newPct=parseFloat(String(answer).trim());
+     if(!Number.isFinite(newPct) || newPct<0 || newPct>100){
+       addMessage("INVALID FUEL % — ENTER 0 TO 100","RED");
+       render();
+       return;
+     }
+   }
+ }
+
+ $("tankPct").value=clamp(newPct,0,100).toFixed(1);
+ $("syncKm").value=km.toFixed(1);
+ scratch="";
+ legacyFuelState=null;
+ legacyFuelMigrated=true;
+
+ /* The fuel plan must be rebuilt from the new actual fuel state. */
+ activeFuelPlan=null;
+ modifiedFuelPlan=null;
+ fuelExecPending=false;
+ evaluateFuelPlanChange(true);
+
+ addMessage(full
+   ? `FULL TANK @ PPOS — 100%`
+   : `FUEL @ PPOS — ${newPct.toFixed(0)}%`,
+   "GREEN"
+ );
+
+ save();
+ render();
+ renderMap();
 }
 function maybeMigrateLegacyFuel(){
  if(!legacyFuelState||legacyFuelMigrated||!gps||!routeReady())return;
@@ -1004,7 +1108,7 @@ function renderMap(forceFit=false){
  if(fp&&!fp.noRefuel&&Number.isFinite(fp.lat)&&Number.isFinite(fp.lon)){
    L.marker([fp.lat,fp.lon]).bindPopup(`<b>⛽ ${esc(fp.name)}</b><br>${fp.price?fp.price.toFixed(1)+" c/L P98":"Price verify"}<br>Route ${fp.km.toFixed(0)} km`).addTo(mapLayers);
  }
- $("planMapMeta").textContent=`${short(originName())} → ${short(destName())} • ${routeTotal().toFixed(0)} KM • ${activeRoute.route.towns?.length||0} TOWNS`;
+ $("planMapMeta").textContent=`${short(originName())} → ${short(destName())} • ${routeTotal().toFixed(0)} KM • ${smartRouteLegs().filter(x=>x.type!=="ORIGIN"&&x.type!=="DEST"&&x.type!=="VIA").length} TOWNS`;
  const rk=routeKey(activeRoute);
  if(forceFit||rk!==lastMappedRouteKey){map.fitBounds(L.latLngBounds(latlngs),{padding:[18,18]});lastMappedRouteKey=rk}
 }
@@ -1017,11 +1121,11 @@ function setAuto(){
 function save(){
  const ids=["apiMode","refreshMin","refreshMoveKm","apiKey","proxyUrl","routeProxyUrl","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc"];
  const values={};ids.forEach(id=>values[id]=$(id)?.value??"");
- localStorage.setItem("fuelCduV8",JSON.stringify({values,activeRoute,routeDraft,liveStations,activeFuelPlan,autoData,lastDataAt,lastDataStatus,lastRefreshRouteKm,legacyFuelMigrated}));
+ localStorage.setItem("fuelCduV82",JSON.stringify({values,activeRoute,routeDraft,liveStations,activeFuelPlan,autoData,lastDataAt,lastDataStatus,lastRefreshRouteKm,legacyFuelMigrated}));
 }
 function load(){
  let x=null;
- try{x=JSON.parse(localStorage.getItem("fuelCduV8")||"null")}catch{}
+ try{x=JSON.parse(localStorage.getItem("fuelCduV82")||localStorage.getItem("fuelCduV81")||localStorage.getItem("fuelCduV8")||"null")}catch{}
  if(x){
    Object.entries(x.values||{}).forEach(([k,v])=>{if($(k))$(k).value=v});
    activeRoute=x.activeRoute||null;routeDraft=x.routeDraft||routeDraft;liveStations=Array.isArray(x.liveStations)?x.liveStations:[];
@@ -1051,7 +1155,7 @@ window.addEventListener("appinstalled",()=>{$("installBtn").hidden=true;addMessa
 
 $("saveCfg").onclick=()=>{save();addMessage("STATE SAVED","GREEN");render()};
 $("clearLive").onclick=()=>{liveStations=[];lastDataAt=0;lastDataStatus="CLEARED";lastRefreshRouteKm=null;activeFuelPlan=null;evaluateFuelPlanChange(true);save();render();renderMap()};
-$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU v8 route and trip data?")){localStorage.removeItem("fuelCduV8");location.reload()}};
+$("resetCfg").onclick=()=>{if(confirm("Reset Fuel CDU v8.2 route and trip data?")){localStorage.removeItem("fuelCduV82");localStorage.removeItem("fuelCduV81");localStorage.removeItem("fuelCduV8");location.reload()}};
 ["apiMode","refreshMin","refreshMoveKm","manualKm","tankPct","syncKm","planCons","worstCons","reservePct","preferredPct","dte","batterySoc","proxyUrl","routeProxyUrl","apiKey"]
  .forEach(id=>$(id)?.addEventListener("input",()=>{evaluateFuelPlanChange();save();setAuto();render()}));
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&autoData)maybeAutoRefreshFromMovement()});
